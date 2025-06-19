@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "tmam"
+version = "1.0.0"
+description = "OpenTelemetry-native Auto instrumentation library for monitoring LLM Applications and GPUs, facilitating the integration of observability into your GenAI-driven projects"
+authors = ["Emad"]
+license = "Apache-2.0"
+repository = "https://github.com/tmam-dev/tmam-python-sdk"
+readme = "README.md"
+homepage = "https://github.com/tmam-dev"
+keywords = ["OpenTelemetry", "otel", "otlp","llm", "tracing", "openai", "anthropic", "claude", "cohere", "llm monitoring", "observability", "monitoring", "gpt", "Generative AI", "chatGPT", "gpu"]
+
+[tool.poetry.dependencies]
+python = "^3.12.1"
+requests = "^2.32.3"
+schedule = "^1.2.2"
+pydantic = "^2.10.6"
+xmltodict = "^0.14.2"
+boto3 = "^1.37.21"
+botocore = "^1.37.21"
+opentelemetry-api = "^1.31.1"
+opentelemetry-sdk = "^1.31.1"
+opentelemetry-exporter-otlp = "^1.31.1"
+opentelemetry-instrumentation = "^0.52b1"
+openai = "^1.68.2"
+anthropic = "^0.49.0"
+
+[build-system]
+requires = ["poetry-core>=2.1.1"]
+build-backend = "poetry.core.masonry.api"
