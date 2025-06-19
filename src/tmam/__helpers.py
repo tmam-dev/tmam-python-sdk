@@ -121,7 +121,7 @@ def fetch_pricing_info(pricing_json=None):
                 logger.error('Unexpected error occurred while reading file: %s', file_err)
             return {}
     else:
-        pricing_url = 'https://raw.githubusercontent.com/openlit/openlit/main/assets/pricing.json'
+        pricing_url = 'https://raw.githubusercontent.com/tmam-dev/assets/main/pricing.json'
     try:
         # Set a timeout of 10 seconds for both the connection and the read
         response = requests.get(pricing_url, timeout=20)
