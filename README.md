@@ -33,7 +33,7 @@ import tmam
 tmam.init(
     url="http://api.tmam.ai/api/sdk/v1",
     public_key="pk-tmam-0edeba2a-f6f3-4efd-982c-412adbb03046",
-    secrect_key="sk-tmam-b320dda9-e36d-4eac-8ac5-4793fd38e002",
+    secret_key="sk-tmam-b320dda9-e36d-4eac-8ac5-4793fd38e002",
 )
 
 # Your LLM or agent code here
