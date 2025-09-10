@@ -1,4 +1,8 @@
-# 🌟 tmam‑python‑sdk
+<p align="center">
+  <img src="https://iili.io/KzZE9ZG.png" height="200">
+</p>
+
+# tmam‑python‑sdk
 
 [![PyPI version](https://img.shields.io/pypi/v/tmam-python-sdk.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)]()
