@@ -5,7 +5,7 @@ This module sets up the Tmam configuration and instrumentation for various
 large language models (LLMs).
 """
 
-from typing import Dict
+from typing import Dict, Optional
 import logging
 import os
 from importlib.util import find_spec
@@ -18,6 +18,7 @@ import requests
 from opentelemetry import trace as t
 from opentelemetry.trace import SpanKind, Status, StatusCode, Span
 from opentelemetry.sdk.resources import SERVICE_NAME, DEPLOYMENT_ENVIRONMENT
+from tmam.utils.utils import JsonOutput
 from tmam.semcov import SemanticConvetion
 from tmam.otel.tracing import setup_tracing
 from tmam.otel.metrics import setup_meter
@@ -67,7 +68,6 @@ from tmam.instrumentation.firecrawl import FireCrawlInstrumentor
 from tmam.instrumentation.letta import LettaInstrumentor
 from tmam.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 from tmam.instrumentation.gpu import GPUInstrumentor
-import tmam.guard
 import tmam.evals
 
 # Set up logging for error and information messages.
@@ -112,6 +112,13 @@ class TmamConfig:
         cls.disable_batch = False
         cls.capture_message_content = True
         cls.disable_metrics = False
+        cls.url = None
+        cls.public_key = None
+        cls.secrect_key = None
+        cls.last_guard_prompt_id = None
+        cls.guardrail_id = None
+        cls.name = None
+        cls.user_id = None
 
     @classmethod
     def update_config(
@@ -125,6 +132,13 @@ class TmamConfig:
         metrics_dict,
         disable_metrics,
         pricing_json,
+        url,
+        public_key,
+        secrect_key,
+        last_guard_prompt_id,
+        guardrail_id,
+        name,
+        user_id,
     ):
         """
         Updates the configuration based on provided parameters.
@@ -150,6 +164,26 @@ class TmamConfig:
         cls.disable_batch = disable_batch
         cls.capture_message_content = capture_message_content
         cls.disable_metrics = disable_metrics
+        cls.url = url
+        cls.public_key = public_key
+        cls.secrect_key = secrect_key
+        cls.last_guard_prompt_id = last_guard_prompt_id
+        cls.guardrail_id = guardrail_id
+        cls.name = name
+        cls.user_id = user_id
+
+    @classmethod
+    def update_guard_config(cls, last_guard_prompt_id, name, user_id, guardrail_id: Optional[str]):
+        """
+        Updates the configuration based on provided parameters.
+
+        Args:
+        """
+        cls.last_guard_prompt_id = last_guard_prompt_id
+        cls.name = name
+        cls.user_id = user_id
+        if guardrail_id is not None:
+            cls.guardrail_id = guardrail_id
 
 
 def module_exists(module_name):
@@ -217,6 +251,7 @@ def init(
     disable_metrics=False,
     pricing_json=None,
     collect_gpu_stats=False,
+    guardrail_id=None
 ):
     """
     Initializes the Tmam configuration and setups tracing.
@@ -321,7 +356,7 @@ def init(
         config = TmamConfig()
 
         env_url_p = env_url.replace("v1", "")
-        
+
         # Setup tracing based on the provided or default configuration.
         tracer = setup_tracing(
             application_name=application_name,
@@ -372,7 +407,7 @@ def init(
             == "false"
         ):
             capture_message_content = False
-
+            
         # Update global configuration with the provided settings.
         config.update_config(
             environment=environment,
@@ -384,8 +419,14 @@ def init(
             metrics_dict=metrics_dict,
             disable_metrics=disable_metrics,
             pricing_json=pricing_json,
+            url=url,
+            public_key=public_key,
+            secrect_key=secrect_key,
+            last_guard_prompt_id=None,
+            guardrail_id=guardrail_id,
+            name=None,
+            user_id=None,
         )
-
         # Map instrumentor names to their instances
         instrumentor_instances = {
             "openai": OpenAIInstrumentor(),
@@ -722,3 +763,129 @@ def start_trace(name: str):
         kind=SpanKind.CLIENT,
     ) as span:
         yield TracedSpan(span)
+
+
+class Detect:
+    """
+    A comprehensive class to detect prompt injections, valid/invalid topics, and sensitive topics using LLM or custom rules.
+
+    Attributes:
+        input (Optional[str]): The name of the LLM provider.
+        output (Optional[str]): The API key for authenticating with the LLM.
+    """
+
+    def input(
+        self,
+        prompt: str,
+        guardrail_id: str | None = None,
+        name: str | None = None,
+        user_id: str | None = None,
+    ) -> JsonOutput:
+        """
+        Retrieve and returns the result from Tmam Guardrail.
+
+        Args:
+            prompt (str): The text of your prompt.
+            guardrail_id Optional[str]: The guardrail ID for authenticating with the server, If not entered guardrail ID default guardrail will assigned.
+            name (Optional[str]): The name of the guardrail for indentify purposes.
+            user_id (Optional[str]): The user id of your prompt user.
+        """
+
+        config = TmamConfig()
+
+        gid = guardrail_id if guardrail_id is not None else config.guardrail_id
+
+        if (
+            config.url is None
+            or config.public_key is None
+            or config.secrect_key is None
+        ):
+            raise ValueError("make sure tmam.init is defined")
+
+        endpoint = config.url + "/guardrail/detect"
+
+        payload = {
+            "guardrailId": gid,
+            "promptUserId": user_id,
+            "prompt": prompt,
+            "isInput": True,
+            # "guardPromptId": Null
+        }
+
+        # Prepare headers
+        headers = {
+            "X-Public-Key": config.public_key,
+            "X-Secret-Key": config.secrect_key,
+            "Content-Type": "application/json",
+        }
+
+        try:
+            response = requests.post(
+                endpoint, json=payload, headers=headers, timeout=120
+            )
+            response.raise_for_status()
+            json = response.json()
+            
+            config.update_guard_config(
+                last_guard_prompt_id=json["data"]["guardPromptId"],
+                guardrail_id=gid,
+                name=name,
+                user_id=user_id,
+            )
+
+            return json["data"]["result"]
+        except requests.RequestException as error:
+            return error
+
+    def output(self, prompt: str) -> JsonOutput:
+        """
+        Retrieve and returns the result from Tmam Guardrail.
+
+        Args:
+            prompt (str): The text of your prompt.
+        """
+
+        config = TmamConfig()
+
+        if config.last_guard_prompt_id is None:
+            raise ValueError("make sure input is defined")
+
+        if (
+            config.url is None
+            or config.public_key is None
+            or config.secrect_key is None
+        ):
+            raise ValueError("make sure tmam.init is defined")
+
+        endpoint = config.url + "/guardrail/detect"
+
+        usrid = config.user_id
+
+        payload = {
+            "guardrailId": config.guardrail_id,
+            "promptUserId": usrid,
+            "prompt": prompt,
+            "isInput": False,
+            "guardPromptId": config.last_guard_prompt_id,
+        }
+
+        # Prepare headers
+        headers = {
+            "X-Public-Key": config.public_key,
+            "X-Secret-Key": config.secrect_key,
+            "Content-Type": "application/json",
+        }
+
+        try:
+            response = requests.post(
+                endpoint, json=payload, headers=headers, timeout=120
+            )
+            response.raise_for_status()
+            json = response.json()
+
+            return json["data"]["result"]
+        except requests.RequestException as error:
+            return error
+
+
+guard = Detect()
