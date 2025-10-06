@@ -776,7 +776,7 @@ class Detect:
 
     def input(
         self,
-        prompt: str,
+        text: str,
         guardrail_id: str | None = None,
         name: str | None = None,
         user_id: str | None = None,
@@ -785,7 +785,7 @@ class Detect:
         Retrieve and returns the result from Tmam Guardrail.
 
         Args:
-            prompt (str): The text of your prompt.
+            text (str): text.
             guardrail_id Optional[str]: The guardrail ID for authenticating with the server, If not entered guardrail ID default guardrail will assigned.
             name (Optional[str]): The name of the guardrail for indentify purposes.
             user_id (Optional[str]): The user id of your prompt user.
@@ -807,7 +807,7 @@ class Detect:
         payload = {
             "guardrailId": gid,
             "promptUserId": user_id,
-            "prompt": prompt,
+            "prompt": text,
             "isInput": True,
             # "guardPromptId": Null
         }
@@ -837,12 +837,12 @@ class Detect:
         except requests.RequestException as error:
             return error
 
-    def output(self, prompt: str) -> JsonOutput:
+    def output(self, text: str) -> JsonOutput:
         """
         Retrieve and returns the result from Tmam Guardrail.
 
         Args:
-            prompt (str): The text of your prompt.
+            text (str): text.
         """
 
         config = TmamConfig()
@@ -864,7 +864,7 @@ class Detect:
         payload = {
             "guardrailId": config.guardrail_id,
             "promptUserId": usrid,
-            "prompt": prompt,
+            "prompt": text,
             "isInput": False,
             "guardPromptId": config.last_guard_prompt_id,
         }
