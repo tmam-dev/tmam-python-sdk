@@ -173,7 +173,9 @@ class TmamConfig:
         cls.user_id = user_id
 
     @classmethod
-    def update_guard_config(cls, last_guard_prompt_id, name, user_id, guardrail_id: Optional[str]):
+    def update_guard_config(
+        cls, last_guard_prompt_id, name, user_id, guardrail_id: Optional[str]
+    ):
         """
         Updates the configuration based on provided parameters.
 
@@ -251,7 +253,7 @@ def init(
     disable_metrics=False,
     pricing_json=None,
     collect_gpu_stats=False,
-    guardrail_id=None
+    guardrail_id=None,
 ):
     """
     Initializes the Tmam configuration and setups tracing.
@@ -407,7 +409,7 @@ def init(
             == "false"
         ):
             capture_message_content = False
-            
+
         # Update global configuration with the provided settings.
         config.update_config(
             environment=environment,
@@ -493,9 +495,6 @@ def get_prompt(
     name=None,
     prompt_id=None,
     version=None,
-    url=None,
-    public_key=None,
-    secrect_key=None,
     should_compile=None,
     variables=None,
     meta_properties=None,
@@ -504,27 +503,13 @@ def get_prompt(
     Retrieve and returns the prompt from Tmam Prompt Hub
     """
 
-    # Validate and set the base URL
-    env_url = get_env_variable(
-        "TMAM_URL",
-        url,
-        "Missing Tmam URL: Provide as arg or set TMAM_URL env var.",
-    )
+    config = TmamConfig()
 
-    # Validate and set the API key
-    env_pk_key = get_env_variable(
-        "TMAM_PUBLIC_KEY",
-        public_key,
-        "Missing Public key: Provide as arg or set TMAM_PUBLIC_KEY env var.",
-    )
-    env_sk_key = get_env_variable(
-        "TMAM_SECRET_KEY",
-        secrect_key,
-        "Missing Secret key: Provide as arg or set TMAM_SECRET_KEY env var.",
-    )
+    if config.url is None or config.public_key is None or config.secrect_key is None:
+        raise ValueError("make sure tmam.init is defined")
 
     # Construct the API endpoint
-    endpoint = env_url + "/prompt/compiled"
+    endpoint = config.url + "/prompt/compiled"
 
     # Prepare the payload
     payload = {
@@ -542,8 +527,8 @@ def get_prompt(
 
     # Prepare headers
     headers = {
-        "X-Public-Key": env_pk_key,
-        "X-Secret-Key": env_sk_key,
+        "X-Public-Key": config.public_key,
+        "X-Secret-Key": config.secrect_key,
         "Content-Type": "application/json",
     }
 
@@ -564,36 +549,19 @@ def get_prompt(
 def get_secrets(
     key=None,
     tags=None,
-    url=None,
-    public_key=None,
-    secrect_key=None,
     should_set_env=None,
 ):
     """
     Retrieve & returns the secrets from Tmam Vault & sets all to env is should_set_env is True
     """
 
-    # Validate and set the base URL
-    env_url = get_env_variable(
-        "TMAM_URL",
-        url,
-        "Missing Tmam URL: Provide as arg or set TMAM_URL env var.",
-    )
+    config = TmamConfig()
 
-    # Validate and set the API key
-    env_pk_key = get_env_variable(
-        "TMAM_PUBLIC_KEY",
-        public_key,
-        "Missing Public key: Provide as arg or set TMAM_PUBLIC_KEY env var.",
-    )
-    env_sk_key = get_env_variable(
-        "TMAM_SECRET_KEY",
-        secrect_key,
-        "Missing Secret key: Provide as arg or set TMAM_SECRET_KEY env var.",
-    )
+    if config.url is None or config.public_key is None or config.secrect_key is None:
+        raise ValueError("make sure tmam.init is defined")
 
     # Construct the API endpoint
-    endpoint = env_url + "/vault/secrets"
+    endpoint = config.url + "/vault/secrets"
 
     # Prepare the payload
     payload = {"key": key, "tags": tags, "source": "Python"}
@@ -603,8 +571,8 @@ def get_secrets(
 
     # Prepare headers
     headers = {
-        "X-Public-Key": env_pk_key,
-        "X-Secret-Key": env_sk_key,
+        "X-Public-Key": config.public_key,
+        "X-Secret-Key": config.secrect_key,
         "Content-Type": "application/json",
     }
 
@@ -825,7 +793,7 @@ class Detect:
             )
             response.raise_for_status()
             json = response.json()
-            
+
             config.update_guard_config(
                 last_guard_prompt_id=json["data"]["guardPromptId"],
                 guardrail_id=gid,
