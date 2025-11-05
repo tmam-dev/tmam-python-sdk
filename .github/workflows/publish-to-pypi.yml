@@ -3,7 +3,7 @@ name: 📦 Publish tmam to PyPI
 on:
   push:
     tags:
-      - "v*"   # only run when a tag like v1.0.4 is pushed
+      - "v*"   # only run when a tag like v1.0.5 is pushed
   workflow_dispatch:  # allow manual trigger from the Actions tab
 
 jobs:
