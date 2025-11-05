@@ -494,10 +494,8 @@ def init(
 def get_prompt(
     name=None,
     prompt_id=None,
+    label=None,
     version=None,
-    should_compile=None,
-    variables=None,
-    meta_properties=None,
 ):
     """
     Retrieve and returns the prompt from Tmam Prompt Hub
@@ -516,9 +514,7 @@ def get_prompt(
         "name": name,
         "promptId": prompt_id,
         "version": version,
-        "shouldCompile": should_compile,
-        "variables": variables,
-        "metaProperties": meta_properties,
+        "label": label,
         "source": "Python",
     }
 
