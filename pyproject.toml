@@ -9,6 +9,8 @@ readme = "README.md"
 homepage = "https://github.com/python"
 keywords = ["OpenTelemetry", "otel", "otlp","llm", "tracing", "openai", "anthropic", "claude", "cohere", "llm monitoring", "observability", "monitoring", "gpt", "Generative AI", "chatGPT", "gpu"]
 
+packages = [{ include = "tmam", from = "src" }]
+
 [tool.poetry.dependencies]
 python = "^3.12.1"
 requests = "^2.32.3"
