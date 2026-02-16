@@ -699,115 +699,6 @@ class AISpanAttributes:
 #     return wrapper
 
 
-def trace(_func: Callable = None, *, role: Optional[str] = None):
-    """
-    Unified OpenTelemetry decorator for:
-    - LLM tracing
-    - AI Agent tracing
-    - Tool calls
-    - Memory retrieval
-    - External API calls
-
-    Supports:
-        @trace
-        @trace()
-        @trace(role=tmam.AgentSpanRole.AGENT_RUN)
-        @trace(role=tmam.AgentSpanRole.PROMPT_BUILD)
-        @trace(role=tmam.AgentSpanRole.REASONING_STEP)
-        @trace(role=tmam.AgentSpanRole.LLM_CALL)
-        @trace(role=tmam.AgentSpanRole.TOOL_CALL)
-        @trace(role=tmam.AgentSpanRole.MEMORY_RETRIEVE)
-        @trace(role=tmam.AgentSpanRole.EXTERNAL_API)
-    """
-
-    def decorator(wrapped: Callable):
-        if not callable(wrapped):
-            raise TypeError(
-                f"@trace can only be applied to callable objects, got {type(wrapped).__name__}"
-            )
-
-        try:
-            __trace = t.get_tracer_provider()
-            tracer = __trace.get_tracer(__name__)
-        except Exception as tracer_exception:
-            logging.error(
-                "Failed to initialize tracer: %s",
-                tracer_exception,
-                exc_info=True,
-            )
-            raise
-
-        @wraps(wrapped)
-        def wrapper(*args, **kwargs):
-            # if role provided → use it
-            # else fallback to function name (backward compatible)
-            span_name = role or wrapped.__name__
-
-            with tracer.start_as_current_span(
-                name=span_name,
-                kind=SpanKind.CLIENT,
-            ) as span:
-                response = None
-                try:
-                    span.set_attribute("ai.span.role", span_name)
-                    span.set_attribute("code.function", wrapped.__name__)
-
-                    response = wrapped(*args, **kwargs)
-
-                    if response is not None:
-                        span.set_attribute(
-                            SemanticConvetion.GEN_AI_CONTENT_COMPLETION,
-                            str(response),
-                        )
-
-                    span.set_status(Status(StatusCode.OK))
-
-                except Exception as e:
-                    span.record_exception(e)
-                    span.set_status(Status(StatusCode.ERROR, str(e)))
-                    logging.error(
-                        "Error in %s: %s",
-                        wrapped.__name__,
-                        e,
-                        exc_info=True,
-                    )
-                    raise
-
-                try:
-                    span.set_attribute("function.args", str(args))
-                    span.set_attribute("function.kwargs", str(kwargs))
-
-                    span.set_attribute(
-                        SERVICE_NAME,
-                        TmamConfig.application_name,
-                    )
-                    span.set_attribute(
-                        DEPLOYMENT_ENVIRONMENT,
-                        TmamConfig.environment,
-                    )
-
-                except Exception as meta_exception:
-                    logging.error(
-                        "Failed to set metadata for %s: %s",
-                        wrapped.__name__,
-                        meta_exception,
-                        exc_info=True,
-                    )
-
-                return response
-
-        return wrapper
-
-    # Support both:
-    #   @trace
-    #   @trace()
-    #   @trace(role="...")
-    if _func is None:
-        return decorator
-
-    return decorator(_func)
-
-
 # class TracedSpan:
 #     """
 #     A wrapper class for an OpenTelemetry span that provides helper methods
@@ -885,91 +776,117 @@ def trace(_func: Callable = None, *, role: Optional[str] = None):
 #     ) as span:
 #         yield TracedSpan(span)
 
+# -----------------------------
+# AI span classification
+# -----------------------------
+
+
+class AISpanKind:
+    LLM = "llm"
+    AGENT = "agent"
+    TOOL = "tool"
+    MEMORY = "memory"
+    EXTERNAL = "external"
+    FUNCTION = "function"  # non-AI fallback
+
+
+def classify_span(role: Optional[str]) -> str:
+    if not role:
+        return AISpanKind.FUNCTION
+
+    r = role.lower()
+    if "llm" in r:
+        return AISpanKind.LLM
+    if "agent" in r:
+        return AISpanKind.AGENT
+    if "tool" in r:
+        return AISpanKind.TOOL
+    if "memory" in r:
+        return AISpanKind.MEMORY
+    if "api" in r or "external" in r:
+        return AISpanKind.EXTERNAL
+
+    return AISpanKind.FUNCTION
+
+
+def _safe(v: Any):
+    if isinstance(v, (int, float, bool, str)):
+        return v
+    return str(v)
+
 
 class TracedSpan:
     """
-    Unified span wrapper for LLM + Agent tracing.
+    Unified span wrapper for Agent + LLM tracing.
     """
 
-    def __init__(self, span: Span, role: str = None):
+    def __init__(self, span: Span, *, role: Optional[str], kind: str):
         self._span = span
         self._role = role
+        self._kind = kind
 
-        if role:
-            self._span.set_attribute(AISpanAttributes.SPAN_ROLE, role)
+        self._span.set_attribute("ai.span.kind", kind)
+        self._span.set_attribute("ai.span.role", role or "function")
 
     # ---------- result handling ----------
 
     def set_result(self, result: Any):
-        """
-        Sets the result based on span role.
-        - LLM → completion
-        - Agent / Tool / API → output
-        """
-
         if result is None:
             return
 
-        # LLM-style result
-        if self._role and "llm" in self._role:
-            self._span.set_attribute(
-                AISpanAttributes.LLM_COMPLETION,
-                str(result),
-            )
+        # Backward compatibility (old dashboards)
+        self._span.set_attribute(
+            "gen_ai.content.completion",
+            str(result),
+        )
+
+        if self._kind == AISpanKind.LLM:
+            self._span.set_attribute("ai.llm.completion", str(result))
         else:
-            # generic result (agent/tool/api)
-            self._span.set_attribute(
-                "ai.result",
-                str(result),
-            )
+            self._span.set_attribute("ai.result", str(result))
 
     # ---------- metadata ----------
 
     def set_metadata(self, metadata: Dict[str, Any]):
-        """
-        Sets metadata safely with namespacing.
-        """
         if not metadata:
             return
 
-        safe_metadata = {}
-        for k, v in metadata.items():
-            # ensure values are serializable
-            safe_metadata[k] = str(v) if not isinstance(v, (int, float, bool)) else v
-
-        self._span.set_attributes(safe_metadata)
+        safe = {k: _safe(v) for k, v in metadata.items()}
+        self._span.set_attributes(safe)
 
     # ---------- LLM helpers ----------
 
     def set_llm_usage(
         self,
-        model: str = None,
-        prompt_tokens: int = None,
-        completion_tokens: int = None,
+        *,
+        model: Optional[str] = None,
+        prompt_tokens: Optional[int] = None,
+        completion_tokens: Optional[int] = None,
     ):
         if model:
-            self._span.set_attribute(AISpanAttributes.LLM_MODEL, model)
+            self._span.set_attribute("ai.llm.model", model)
 
         if prompt_tokens is not None:
-            self._span.set_attribute(AISpanAttributes.LLM_PROMPT_TOKENS, prompt_tokens)
+            self._span.set_attribute("ai.llm.prompt_tokens", prompt_tokens)
 
         if completion_tokens is not None:
             self._span.set_attribute(
-                AISpanAttributes.LLM_COMPLETION_TOKENS, completion_tokens
+                "ai.llm.completion_tokens",
+                completion_tokens,
             )
 
         if prompt_tokens is not None and completion_tokens is not None:
             self._span.set_attribute(
-                AISpanAttributes.LLM_TOTAL_TOKENS,
+                "ai.llm.total_tokens",
                 prompt_tokens + completion_tokens,
             )
 
     # ---------- Agent helpers ----------
 
     def set_agent_step(self, index: int):
-        self._span.set_attribute(AISpanAttributes.AGENT_STEP_INDEX, index)
+        self._span.set_attribute("ai.agent.step_index", index)
 
-    # ---------- Context management ----------
+    # ---------- context ----------
 
     def __enter__(self):
         return self
@@ -978,41 +895,118 @@ class TracedSpan:
         if exc_val:
             self._span.record_exception(exc_val)
             self._span.set_status(Status(StatusCode.ERROR, str(exc_val)))
-        self._span.end()
+        # IMPORTANT: do NOT call span.end()
+
+
+def trace(_func: Callable = None, *, role: Optional[str] = None):
+    """
+    Unified decorator for:
+    - LLM calls
+    - Agent runs / steps
+    - Tool / memory / API calls
+    - Normal functions
+    """
+
+    def decorator(wrapped: Callable):
+        if not callable(wrapped):
+            raise TypeError("@trace can only be applied to callables")
+
+        tracer = t.get_tracer_provider().get_tracer(__name__)
+        span_kind = classify_span(role)
+
+        @wraps(wrapped)
+        def wrapper(*args, **kwargs):
+            span_name = role or wrapped.__name__
+
+            with tracer.start_as_current_span(
+                name=span_name,
+                kind=SpanKind.CLIENT,
+            ) as span:
+
+                if not span.is_recording():
+                    return wrapped(*args, **kwargs)
+
+                # ---- canonical classification ----
+                span.set_attribute("ai.span.kind", span_kind)
+                span.set_attribute("ai.span.role", role or "function")
+
+                # ---- code identity ----
+                span.set_attribute("code.function", wrapped.__name__)
+
+                # ---- env identity ----
+                span.set_attribute("service.name", TmamConfig.application_name)
+                span.set_attribute(
+                    "deployment.environment",
+                    TmamConfig.environment,
+                )
+
+                try:
+                    result = wrapped(*args, **kwargs)
+
+                    # legacy + new result attributes
+                    span.set_attribute(
+                        "gen_ai.content.completion",
+                        _safe(result),
+                    )
+
+                    if span_kind == AISpanKind.LLM:
+                        span.set_attribute("ai.llm.completion", _safe(result))
+                    else:
+                        span.set_attribute("ai.result", _safe(result))
+
+                    span.set_status(Status(StatusCode.OK))
+                    return result
+
+                except Exception as e:
+                    span.record_exception(e)
+                    span.set_status(Status(StatusCode.ERROR, str(e)))
+                    raise
+
+                finally:
+                    # safe args capture (never fails exporter)
+                    span.set_attribute("function.args", _safe(args))
+                    span.set_attribute("function.kwargs", _safe(kwargs))
+
+        return wrapper
+
+    if _func is None:
+        return decorator
+
+    return decorator(_func)
 
 
 @contextmanager
-def start_trace(name: str, *, role: str = None):
+def start_trace(name: str, *, role: Optional[str] = None):
     """
-    Starts a manual span usable for:
+    Manual span for:
     - agent reasoning loops
-    - prompt construction
-    - memory/tool/api calls
-
-    Example:
-        with start_trace("agent.reasoning.step", role="agent.reasoning.step") as span:
-            ...
+    - prompt building
+    - tool / memory / API calls
     """
 
     tracer = t.get_tracer_provider().get_tracer(__name__)
+    span_kind = classify_span(role)
 
     with tracer.start_as_current_span(
         name=name,
         kind=SpanKind.CLIENT,
     ) as span:
-        # Common attributes
+
+        if not span.is_recording():
+            yield None
+            return
+
+        span.set_attribute("ai.span.kind", span_kind)
+        span.set_attribute("ai.span.role", role or "function")
         span.set_attribute("code.span_name", name)
 
+        span.set_attribute("service.name", TmamConfig.application_name)
         span.set_attribute(
-            SERVICE_NAME,
-            TmamConfig.application_name,
-        )
-        span.set_attribute(
-            DEPLOYMENT_ENVIRONMENT,
+            "deployment.environment",
             TmamConfig.environment,
         )
 
-        yield TracedSpan(span, role=role)
+        yield TracedSpan(span, role=role, kind=span_kind)
 
 
 class Detect:
